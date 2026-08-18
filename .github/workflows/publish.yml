@@ -1,0 +1,35 @@
+name: Publish to PyPI
+
+# Manual-dispatch only. Publishing is an irreversible operator action; this
+# workflow never runs on push or tag. It uses PyPI Trusted Publishing (OIDC),
+# so no API token is stored anywhere: PyPI must list this repo + workflow as
+# a trusted publisher for the `ztip` project before the first run.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for PyPI Trusted Publishing (OIDC)
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade build
+          rm -rf dist/
+          python -m build
+
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1

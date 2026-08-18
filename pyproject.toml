@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ztip"
-version = "1.0.0.dev1"
+version = "1.0.0.dev2"
 description = "ZTIP reference runtime — RFC 8785 canonicalization, SHA-256 hashing, and integrity verification for the Zero Trust Intelligence Protocol"
 readme = "README.md"
 requires-python = ">=3.10"

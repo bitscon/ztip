@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: ztip
-Version: 1.0.0.dev1
+Version: 1.0.0.dev2
 Summary: ZTIP reference runtime — RFC 8785 canonicalization, SHA-256 hashing, and integrity verification for the Zero Trust Intelligence Protocol
 Author: Chad McCormack
 License-Expression: MIT
@@ -15,11 +15,44 @@ Description-Content-Type: text/markdown
 License-File: LICENSE
 Dynamic: license-file
 
+<p align="center">
+  <img src="docs/assets/ztip-banner.svg" alt="ZTIP — Zero Trust Intelligence Protocol. The open protocol for governed agent transactions. Code freedom, Verified." width="100%" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/bitscon/ztip/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/bitscon/ztip/validate.yml?branch=main&label=ci" alt="CI" /></a>
+  <a href="https://pypi.org/project/ztip/"><img src="https://img.shields.io/pypi/v/ztip?color=f97316" alt="PyPI" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f97316" alt="License: MIT" /></a>
+  <a href="SPEC.md"><img src="https://img.shields.io/badge/spec-1.0--draft-f97316" alt="Spec: 1.0-draft" /></a>
+  <img src="https://img.shields.io/badge/status-pre--release-8e95a3" alt="Status: pre-release" />
+</p>
+
 # ZTIP — Zero Trust Intelligence Protocol
 
 > Every agent handoff is a trust decision. ZTIP makes that decision provable.
 
 **Freedom for engineers. Governance for the organization.**
+
+---
+
+## Try It (60 seconds)
+
+```bash
+pip install --pre ztip          # the reference runtime + CLI (pre-release)
+git clone https://github.com/bitscon/ztip.git && cd ztip
+
+ztip verify examples/01-auto-authorized-success.json
+# integrity verified — every hash in the bundle recomputed and checked
+
+ztip hash examples/01-auto-authorized-success.json
+# prints the RFC 8785 + SHA-256 envelope hashes
+```
+
+All ten lifecycle examples under `examples/` carry real, recomputable integrity
+hashes — tamper with any field and `ztip verify` fails closed. The protocol
+summary is also published as an individual Internet-Draft,
+[draft-mccormack-ztip](https://datatracker.ietf.org/doc/draft-mccormack-ztip/);
+an Internet-Draft is a working document, not an IETF standard.
 
 ---
 
@@ -102,7 +135,8 @@ ZTI (verification doctrine)
 ```
 
 ZTIP is the protocol. ZTI Core is one compliant implementation of the control plane that enforces
-it. Organizations may use ZTI Core or build their own compliant control plane.
+it. Organizations may use ZTI Core or build their own compliant control plane. ZTI Core is
+complete and in early access.
 
 ---
 
