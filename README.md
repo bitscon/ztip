@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/bitscon/ztip/actions/workflows/validate.yml"><img src="https://img.shields.io/github/actions/workflow/status/bitscon/ztip/validate.yml?branch=main&label=ci" alt="CI" /></a>
   <a href="https://pypi.org/project/ztip/"><img src="https://img.shields.io/pypi/v/ztip?color=f97316" alt="PyPI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-f97316" alt="License: MIT" /></a>
   <a href="SPEC.md"><img src="https://img.shields.io/badge/spec-1.0--draft-f97316" alt="Spec: 1.0-draft" /></a>
@@ -32,8 +33,9 @@ ztip hash examples/01-auto-authorized-success.json
 
 All ten lifecycle examples under `examples/` carry real, recomputable integrity
 hashes — tamper with any field and `ztip verify` fails closed. The protocol
-summary is also on file with the IETF:
-[draft-mccormack-ztip](https://datatracker.ietf.org/doc/draft-mccormack-ztip/).
+summary is also published as an individual Internet-Draft,
+[draft-mccormack-ztip](https://datatracker.ietf.org/doc/draft-mccormack-ztip/);
+an Internet-Draft is a working document, not an IETF standard.
 
 ---
 
@@ -116,7 +118,8 @@ ZTI (verification doctrine)
 ```
 
 ZTIP is the protocol. ZTI Core is one compliant implementation of the control plane that enforces
-it. Organizations may use ZTI Core or build their own compliant control plane.
+it. Organizations may use ZTI Core or build their own compliant control plane. ZTI Core is
+complete and in early access.
 
 ---
 
