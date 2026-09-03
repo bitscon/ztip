@@ -45,13 +45,30 @@ For any protocol-impacting change:
 - Keep PRs reviewable; split large unrelated changes.
 
 ## Validation Requirements
+Install the dev dependencies once:
+
+```bash
+python3 -m pip install -r requirements-dev.txt
+```
+
 If you change `schemas/`, `examples/`, or validation tooling, run:
 
 ```bash
 python3 scripts/validate-examples.py
 ```
 
-Do not merge changes that break example validation.
+If you change anything under `ztip/` or `tests/`, run the reference runtime's tests:
+
+```bash
+python3 -m pytest tests/
+```
+
+CI runs both on every push and pull request, and the release workflow runs them before it
+builds an artifact. Do not merge changes that break example validation or the test suite.
+
+A note on what those tests are for: `tests/test_vacuity.py` exists to keep `ztip verify` from
+ever reporting success over content it did not check. If you relax a rule there, say why in the
+pull request — a verifier that cannot be trusted to refuse is worse than no verifier.
 
 ## Licensing
 By contributing, you agree that your contributions are licensed under the repository's MIT License.

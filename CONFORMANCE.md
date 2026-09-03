@@ -69,7 +69,8 @@ transactions end-to-end.
 
 - Parse any ZTIP envelope presented to it.
 - Validate that all required shared fields are present: `ztap_version`, `envelope_type`,
-  `transaction_id`, `integrity`.
+  `transaction_id`, `integrity`. An identifier made only of whitespace or zero-width
+  characters names nothing and does not satisfy "present".
 - Validate that `envelope_type` is one of the five defined ZTIP types.
 - Reject envelopes with an unsupported or unrecognized `ztap_version` major version.
 - Validate that actor `role` fields contain only defined ZTIP protocol role values.
@@ -78,12 +79,21 @@ transactions end-to-end.
 - Validate that `integrity.canonicalization` and `integrity.hash_algorithm` are present.
 - Validate that `integrity.hash_value` is present and non-empty.
 - Verify the envelope hash: recompute the hash using the declared canonicalization and
-  algorithm, and confirm it matches `integrity.hash_value`.
+  algorithm, and confirm it matches `integrity.hash_value`. An implementation that does not
+  implement a declared canonicalization or algorithm must report the envelope as unverifiable
+  under its declared rules — never verify it under a different default and report success.
 - Validate that all reason codes appearing in envelopes are either core ZTIP codes or
   namespaced extension codes. Reject un-namespaced unknown codes.
 - Validate that all evidence types appearing in envelopes are either core ZTIP types or
   namespaced extension types. Reject un-namespaced unknown types.
 - Report structural validation failures with a structured reason code from the ZTIP core set.
+- Reject a `verification_results` entry that is not a structured result, and reject an empty
+  `verification_results` when `status` is `succeeded` (see Receipt Conformance).
+
+**An Envelope Validator that reports a result over a bundle MUST additionally** apply the
+Bundle Verification Conformance rules below. These are cross-envelope properties: an
+implementation that only ever validates one envelope at a time does not incur them, and does
+not claim them.
 
 **An Envelope Validator MAY:**
 
@@ -185,7 +195,8 @@ governance is finally enforced by either accepting or refusing action.
 - Include `request_hash` matching the original transaction request.
 - Include `authorization_decision_ref` referencing the decision that authorized execution.
 - Include structured `verification_results` checked against the transaction's
-  `verification_requirements`.
+  `verification_requirements`. A receipt with `status: "succeeded"` must record at least one
+  result, each naming the check (`check_id`, `check_type`) and whether it passed.
 - Include `atomicity_result` accurately recording whether execution was atomic, partial, or
   non-atomic, and whether rollback was performed.
 - Include `reason_codes` on all non-succeeded receipts.
@@ -303,12 +314,58 @@ A conforming control plane must additionally:
 - Maintain a hash-linked audit log. Each stored record must reference the prior record's hash.
 - Make the hash chain available for auditor verification.
 
+### Bundle Verification Conformance
+
+A *bundle* is a set of ZTIP envelopes verified together — the envelopes of one transaction,
+an audit-trail export, or an evidence package. An implementation that reports a verification
+result over a bundle must:
+
+- Split a document the same way in every tool it ships: an object declaring any ZTIP envelope
+  field is one envelope even when it also carries an `envelopes` key; only an object declaring
+  none of them is a wrapper. Two tools that disagree about what a document is will disagree
+  about whether it verifies.
+- Report how many envelopes it verified. A caller must never be able to read "nothing to
+  verify" as "everything verified".
+- Refuse to report success over an empty bundle.
+- Report a `request_hash` that resolves to no transaction request present in the bundle as
+  unverified linkage, not as an intact reference. An implementation MAY offer an explicit
+  partial-bundle mode; in that mode it must state that chain linkage was not verified.
+- Reject a bundle carrying more than one `transaction_request` for a single `transaction_id`.
+  The request history is ambiguous, and the later request silently shadows the earlier one
+  while every hash still verifies.
+- Refuse to report content as a verified envelope when it lacks a defined `envelope_type`, a
+  non-empty `transaction_id`, or — for a receipt — a defined `status`. A self-computed hash
+  over arbitrary content is not envelope verification.
+- Verify under the canonicalization and hash algorithm each envelope declares, and report an
+  envelope declaring rules the implementation does not apply rather than verifying it under a
+  different default.
+- Resolve a `request_hash` against the `transaction_request` carrying the same
+  `transaction_id`, at every site an envelope binds itself by hash — including an
+  authorization decision's `human_approval_ref.approval_scope`, which binds a human approval
+  to the work it approved — and report receipts for one `transaction_id` that disagree on the
+  terminal state.
+- Reject a document whose JSON objects declare the same member name twice: parsers disagree on
+  what such a document says, while every hash still verifies.
+- Report content carried in a bundle wrapper beside the envelopes and non-normative
+  annotations. It is neither hashed nor verified. This is a disclosure duty: such content does
+  not make the bundle invalid, and must not be reported as an integrity defect.
+- Reject a verification result stored under an annotation key: annotation fields are excluded
+  from the envelope hash, so such a result is not covered by the seal and does not count as
+  recorded.
+- Reject a `succeeded` receipt whose every recorded verification result reports failure: a
+  success contradicted by its own record is not a verified success.
+- Scope its reported claim to what it checked. Hash verification establishes intactness, not
+  authenticity, not that any declared check was executed, and not the content of non-normative
+  annotation fields, which are excluded from the hash by design.
+
 ### Multi-Version Integrity Conformance
 
 A conforming control plane that stores envelopes from multiple ZTIP versions must:
 
 - Verify each stored envelope using the `canonicalization` and `hash_algorithm` declared
-  in that envelope's own `integrity` object — not the control plane's current default.
+  in that envelope's own `integrity` object — not the control plane's current default. Where
+  the declared rules are not implemented, report the envelope as unverifiable under them
+  rather than substituting a default.
 - Retain `ztap_version`, `integrity.canonicalization`, and `integrity.hash_algorithm`
   alongside every stored envelope so each can be independently re-verified at any time.
 - Not silently reinterpret older-version envelopes under newer schema rules. Version-specific
@@ -361,7 +418,8 @@ A conforming receipt must:
 - Include `actions_attempted` and `actions_completed`. Empty arrays are valid only when no
   execution was attempted.
 - Include structured `verification_results` corresponding to each entry in the transaction's
-  `verification_requirements`, identified by `check_id`.
+  `verification_requirements`, identified by `check_id`. At least one result is required when
+  `status` is `succeeded`; an empty result set is valid only for a non-succeeded receipt.
 - Include `atomicity_result` with `mode_declared`, `outcome`, and `rollback_performed`.
   Include `partial_state_description` when `outcome` is `partial`.
 - Include `evidence_refs` when evidence records were submitted and are relevant to the receipt.
@@ -466,6 +524,11 @@ The following table defines a minimum set of positive and negative conformance t
 test should be implementable as a deterministic, automated check. A conforming implementation
 must pass all applicable tests for its declared conformance level.
 
+Rows marked **L1-B** apply only to an implementation that reports a verification result over a
+*bundle* — a set of envelopes verified together (see Bundle Verification Conformance). They are
+cross-envelope properties, so they are not expressible in the single-envelope JSON Schema; an
+Envelope Validator that only ever validates one envelope at a time is not held to them.
+
 | # | Test | Type | Level | Expected Result |
 |---|---|---|---|---|
 | T01 | Submit a structurally valid envelope | Positive | L1 | Accepted, hash verified |
@@ -504,6 +567,19 @@ must pass all applicable tests for its declared conformance level.
 | T34 | Unknown un-namespaced profile rejected | Negative | L2 | Rejected: `SCHEMA_INVALID` |
 | T35 | Control plane elevates declared risk level, records `evaluated_risk_level` | Positive | L2 | Decision includes `RISK_LEVEL_ESCALATED` and `evaluated_risk_level` |
 | T36 | Hash verification uses envelope's declared algorithm, not current default | Positive | L2 | Historical record verified with its own declared method |
+| T36b | Envelope declares a canonicalization or algorithm the implementation does not implement | Negative | L1 | Reported unverifiable under its declared rules — never verified under a substitute default |
+| T37 | Verify an empty bundle (no envelopes) | Negative | L1-B | Refused — not reported as verified |
+| T38 | Verify a bundle whose `request_hash` names an absent transaction request | Negative | L1-B | Reported as unverified linkage, not intact |
+| T39 | Verify a bundle with two `transaction_request` envelopes sharing one `transaction_id` | Negative | L1-B | Rejected — ambiguous request history |
+| T40 | Receipt with `status: "succeeded"` and an empty `verification_results` (`[]` or `{}`) | Negative | L1 | Rejected: `SCHEMA_INVALID` |
+| T41 | Receipt with `status: "failed"` and an empty `verification_results` (`[]`) | Positive | L1 | Accepted — verification may never have been reached |
+| T42 | Self-sealed content with an undefined `envelope_type` or receipt `status` | Negative | L1 | Rejected: `SCHEMA_INVALID` — a valid self-hash is not verification |
+| T43 | Receipt with `verification_results` omitted entirely, any status | Negative | L1 | Rejected: `SCHEMA_INVALID` — the field is required; an empty collection is how "none" is expressed |
+| T44 | A `verification_results` entry that is free text rather than a structured result | Negative | L1 | Rejected: `SCHEMA_INVALID` |
+| T45 | Receipt with `status: "succeeded"` whose every recorded result reports `passed: false` | Negative | L1-B | Refused — a success contradicted by its own record |
+| T46 | `succeeded` receipt whose only result is keyed by an underscore-prefixed name | Negative | L1 | Rejected — the result is outside the envelope hash, so it is not a recorded result |
+| T47 | Approval scope whose `request_hash`/`transaction_id` name a transaction not present in the bundle | Negative | L1-B | Reported as unverified linkage — an approval must bind to the work it approved |
+| T48 | An envelope that also carries an `envelopes` key | Negative | L1 | Validated as one envelope, never as a wrapper around its payload |
 
 ---
 

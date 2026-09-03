@@ -19,13 +19,13 @@ jobs:
 
       - name: Install dependencies
         run: |
-          if [ -f requirements-dev.txt ]; then
-            python -m pip install --upgrade pip
-            python -m pip install -r requirements-dev.txt
-          fi
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
 
       - name: Validate schema JSON syntax
         run: |
+          set -euo pipefail
           for f in schemas/*.json; do
             python -m json.tool "$f" > /dev/null
           done
@@ -33,3 +33,18 @@ jobs:
       - name: Validate examples
         run: |
           python3 scripts/validate-examples.py
+
+      # The reference runtime is what turns the example hashes from prose into
+      # something checkable, so a broken runtime must not be able to ship green.
+      # Without this step the workflow passed with ztip/chain.py unable to parse.
+      - name: Test the reference runtime
+        run: |
+          python -m pytest tests/
+
+      - name: Verify every example through the shipped CLI
+        run: |
+          set -euo pipefail
+          python -m pip install .
+          for f in examples/*.json; do
+            ztip verify "$f"
+          done

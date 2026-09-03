@@ -134,12 +134,20 @@
           }
         },
         "verification_results": {
+          "$comment": "Results must be structured, not free text, in every receipt state, and an object form is keyed by check identifiers: an underscore-prefixed key is a non-normative annotation, excluded from the envelope hash, so a result stored under one is not covered by the seal. The succeeded conditional below adds the requirement that there be at least one.",
           "oneOf": [
             {
-              "type": "object"
+              "type": "array",
+              "items": {
+                "$ref": "ztip-envelope.schema.json#/$defs/verification_result"
+              }
             },
             {
-              "type": "array"
+              "type": "object",
+              "propertyNames": { "pattern": "^[^_]" },
+              "additionalProperties": {
+                "$ref": "ztip-envelope.schema.json#/$defs/verification_result"
+              }
             }
           ]
         },
@@ -195,6 +203,44 @@
             "properties": {
               "reason_codes": {
                 "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "$comment": "A receipt that reports success must record what it verified. A succeeded receipt carrying no verification result asserts a completion nothing checked; non-succeeded receipts may legitimately carry none, because execution may never have reached verification.",
+          "if": {
+            "properties": {
+              "status": {
+                "const": "succeeded"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "verification_results"
+            ],
+            "properties": {
+              "verification_results": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "$ref": "ztip-envelope.schema.json#/$defs/verification_result"
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "$ref": "ztip-envelope.schema.json#/$defs/verification_result"
+                    }
+                  }
+                ]
               }
             }
           }

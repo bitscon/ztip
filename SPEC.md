@@ -575,10 +575,27 @@ attested.
 
 ### Recorded Results
 
-The `verification_results` recorded in the receipt must identify the verifying authority —
-the `verification_actor` field defined in `SCHEMA.md` — and the per-check outcomes. The
-receipt binds these results under the envelope hash: the record of who verified what, and
-how it resolved, is as tamper-evident as the request it verifies.
+The `verification_results` recorded in the receipt carry the per-check outcomes, and should
+identify the verifying authority through the `verification_actor` field defined in
+`SCHEMA.md`. The receipt binds these results under the envelope hash: the record of what was
+verified, and how it resolved, is as tamper-evident as the request it verifies.
+
+Identifying the authority is a producer obligation. Envelope integrity verification does not
+check it — a verifier cannot tell whether a named actor really performed the check — and the
+schema does not require it. Treat its absence as a gap in the audit record, not as a
+verification failure.
+
+**A receipt with status `succeeded` must record at least one verification result.** A
+success that recorded no result asserts a completion that nothing checked, and is not a
+valid ZTIP receipt. Each recorded result must identify the check it reports — its
+`check_id` and `check_type` — and whether it passed. Receipts in a non-succeeded terminal
+state may legitimately carry no results, because execution may never have reached
+verification; that case is honest and remains valid.
+
+Recording results is a floor, not the whole of the requirement. Whether the results
+correspond to the checks the request declared — every entry in `verification_requirements`
+answered by a result carrying the same `check_id` — is settled by the control plane under
+the Fail-Closed Acceptance rules above, not by envelope integrity verification.
 
 ### Determinism
 
@@ -631,6 +648,93 @@ value — must produce a different hash, invalidating the hash reference chain.
 - Does this receipt correspond to the request I submitted?
 - Does the evidence correspond to the transaction it claims to support?
 - Has the audit log been tampered with?
+
+### What Hash Verification Does Not Answer
+
+The integrity hash is computed from the envelope's own content, so anyone holding the
+envelope can recompute it. That makes intactness checkable by everyone, and it means hash
+verification is silent on three separate questions:
+
+- **Authenticity.** An intact envelope is self-consistent. It is not evidence that a trusted
+  party produced it. Binding an envelope to an identity requires a signature or an
+  independent attestation, which ZTIP v1 does not mandate.
+- **Whether a check actually ran.** Integrity binds the results a receipt records; it cannot
+  establish that the recorded results came from executing the declared checks. That
+  separation is the Completion Verification section's subject.
+- **Whether the record is complete.** A bundle that verifies intact may still be missing
+  envelopes. See Bundle Verification below.
+
+A conformant implementation must not present hash verification as more than this. Reporting
+"verified" over content whose scope was not checked is the failure mode these rules exist to
+prevent.
+
+### Bundle Verification
+
+A *bundle* is a set of ZTIP envelopes verified together — the envelopes of one transaction,
+an audit-trail export, or an evidence package. An implementation that verifies a bundle must
+apply the following rules, each of which fails closed:
+
+- **A wrapper carries envelopes; it is not one.** An object that declares any ZTIP envelope
+  field — `ztap_version`, `envelope_type`, `transaction_id`, or `integrity` — is one envelope,
+  even when it also carries an `envelopes` key, and it is verified as such. Reading it as a
+  wrapper instead would leave the envelope itself unverified while the reported count described
+  its payload. An object declaring none of those fields, and carrying an `envelopes` array, is
+  a wrapper.
+- **An empty bundle is not a verified bundle.** Verification over zero envelopes must not
+  report success. An implementation must report how many envelopes it verified, so that a
+  caller — human or automated — can never read "nothing to verify" as "everything verified".
+- **References must resolve.** A `request_hash` that names a transaction request not present
+  in the bundle leaves the linkage unverified, and must be reported as such. An
+  implementation may offer an explicit mode for verifying a deliberately partial bundle; in
+  that mode it must state that chain linkage was not verified.
+- **One transaction request per transaction.** A bundle carrying more than one
+  `transaction_request` for a single `transaction_id` has an ambiguous request history: a
+  second request can shadow the first while every hash still checks out. This is invalid
+  regardless of which request the receipts reference.
+- **Envelopes must be ZTIP envelopes.** Content that does not satisfy the envelope contract —
+  a protocol version the verifier supports, a known `envelope_type`, a `transaction_id`, an
+  `integrity` object declaring the canonicalization and hash algorithm it was sealed under,
+  and the fields that envelope type requires — is not verifiable ZTIP content, and a
+  self-computed hash over it must not be reported as a verified envelope. Value-level
+  conformance beyond that contract (identifier formats, role vocabularies, reason-code
+  namespacing) is schema validation, and a verifier that does not perform it must not imply
+  that it did.
+- **Verify under the rules the envelope declares.** An envelope declaring a canonicalization
+  or hash algorithm the verifier does not apply must be reported, not silently verified under
+  the verifier's own default. Otherwise the report describes a computation nobody performed.
+- **References resolve by transaction.** A `request_hash` is resolved against the
+  `transaction_request` carrying the same `transaction_id`, and must equal that request's
+  hash. Resolving by hash value alone would let a receipt bind itself to a different
+  transaction's request.
+- **Every binding site is resolved, not only the top-level field.** An authorization
+  decision's `human_approval_ref.approval_scope` carries its own `transaction_id` and
+  `request_hash`, and that pair is what binds a human approval to the work it approved. It is
+  resolved under the same rule. Leaving it unchecked is how an approval for one transaction
+  gets attached to another while every hash still verifies.
+- **One transaction, one outcome.** A transaction may carry several envelopes and several
+  receipts, but receipts reporting different terminal states for one `transaction_id` are
+  contradictory: a reader would have to guess which one settles the transaction.
+- **A success must not contradict its own record.** A `succeeded` receipt whose every recorded
+  check reports failure is internally inconsistent, regardless of which checks were required.
+- **A recorded result must be covered by the seal.** Non-normative annotation fields are
+  excluded from the envelope hash, so a verification result stored under an annotation key is
+  not bound by it: the same hash describes the receipt with the result and without it. Such a
+  result does not count as recorded.
+- **A recorded result is structured wherever it appears.** Any envelope recording
+  `verification_results` records structured results — each naming the check and its outcome —
+  not free text. The requirement that results be *present* applies to `succeeded` receipts;
+  the requirement that they be *meaningful* applies wherever they are recorded.
+- **Report what was counted, not what was submitted.** An implementation reporting a count
+  states how many envelopes it verified and how many references it resolved. Zero resolved
+  references is not a verified chain.
+- **Content beside the envelopes is not verified.** A bundle wrapper may carry metadata — an
+  export identifier, a timestamp — beside its envelopes. That content is outside every
+  envelope hash, so an implementation must report it alongside its result. This is a
+  disclosure duty, not grounds for refusal: an export wrapper legitimately carries metadata,
+  and refusing it would push integrators to stop verifying exports.
+- **The document must be unambiguous.** A JSON object that declares the same member name twice
+  means different things to different parsers while every hash still checks out. An integrity
+  model built on a canonical hash cannot accept that; such a document is not verifiable.
 
 ### Algorithm
 

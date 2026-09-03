@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "ztip-bundle.schema.json",
   "title": "ZTIP Bundle",
-  "description": "Accepts either one ZTIP envelope object or an array of ZTIP envelope objects.",
+  "description": "Accepts one ZTIP envelope object, an array of ZTIP envelope objects, or a wrapper object carrying them under `envelopes`. A wrapper may carry other metadata beside its envelopes; that content is outside every envelope hash, so a verifier reports it rather than verifying it.",
   "oneOf": [
     {
       "$ref": "ztip-envelope.schema.json"
@@ -12,6 +12,30 @@
       "minItems": 1,
       "items": {
         "$ref": "ztip-envelope.schema.json"
+      }
+    },
+    {
+      "type": "object",
+      "$comment": "A wrapper carries envelopes; it is not one. An object declaring any ZTIP envelope field is an envelope even when it also carries an `envelopes` key — otherwise an envelope could hide behind a payload and never be validated itself.",
+      "required": [
+        "envelopes"
+      ],
+      "not": {
+        "anyOf": [
+          { "required": ["ztap_version"] },
+          { "required": ["envelope_type"] },
+          { "required": ["transaction_id"] },
+          { "required": ["integrity"] }
+        ]
+      },
+      "properties": {
+        "envelopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "ztip-envelope.schema.json"
+          }
+        }
       }
     }
   ]

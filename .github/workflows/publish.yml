@@ -25,8 +25,24 @@ jobs:
         with:
           python-version: '3.x'
 
+      # A manual dispatch is still a release. The same gate that guards main
+      # guards the artifact: a runtime that cannot pass its own tests, or
+      # examples that no longer validate, must not reach PyPI.
+      - name: Gate — tests and examples must pass before a release is built
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+          python -m pytest tests/
+          python3 scripts/validate-examples.py
+          python -m pip install .
+          for f in examples/*.json; do
+            ztip verify "$f"
+          done
+
       - name: Build sdist and wheel
         run: |
+          set -euo pipefail
           python -m pip install --upgrade build
           rm -rf dist/
           python -m build

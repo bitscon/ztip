@@ -29,6 +29,12 @@
       "type": "string",
       "minLength": 1
     },
+    "visible_string": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A string carrying at least one visible character. An identifier made only of whitespace or zero-width characters names nothing.",
+      "pattern": "[^\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028-\u2029\u202f\u205f\u3000\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\u206a\u206b\u206c\u206d\u206e\u206f\u2800\u3164\ufeff\uffa0]"
+    },
     "namespaced_identifier": {
       "type": "string",
       "pattern": "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/[A-Za-z0-9][A-Za-z0-9._-]*$"
@@ -397,6 +403,75 @@
         }
       }
     },
+    "verification_result": {
+      "type": "object",
+      "description": "The outcome of one verification check recorded on an execution receipt. A result must say which check ran, what kind of check it was, and whether it passed; a result that says none of these certifies nothing.",
+      "required": [
+        "check_id",
+        "check_type",
+        "passed"
+      ],
+      "properties": {
+        "check_id": {
+          "$ref": "#/$defs/visible_string"
+        },
+        "check_type": {
+          "$ref": "#/$defs/visible_string"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "expected_result": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "actual_result": {
+          "oneOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        },
+        "verification_actor": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "evidence_ref": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "failure_reason_code": {
+          "$ref": "#/$defs/reason_code"
+        }
+      }
+    },
     "verification_requirements": {
       "type": "array",
       "minItems": 1,
@@ -696,7 +771,7 @@
           ]
         },
         "transaction_id": {
-          "$ref": "#/$defs/non_empty_string"
+          "$ref": "#/$defs/visible_string"
         },
         "integrity": {
           "$ref": "#/$defs/integrity"

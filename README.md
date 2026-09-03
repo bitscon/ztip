@@ -21,18 +21,36 @@
 ## Try It (60 seconds)
 
 ```bash
-pip install --pre ztip          # the reference runtime + CLI (pre-release)
 git clone https://github.com/bitscon/ztip.git && cd ztip
+pip install .                   # the reference runtime + CLI
 
 ztip verify examples/01-auto-authorized-success.json
-# integrity verified — every hash in the bundle recomputed and checked
+# OK  examples/01-auto-authorized-success.json: 3 envelope(s) verified — hashes
+# recomputable, 2 request reference(s) resolved to the requests they name
+#     note: the bundle also carries "_ztip_example" (annotation) beside its envelopes;
+#     that content is not hashed and was not verified
+#     scope: integrity and the envelope contract only — field values were not validated
+#     against the schemas (scripts/validate-examples.py does that), a ZTIP hash is
+#     recomputable by anyone so this is not proof of authenticity, and annotation fields
+#     (keys beginning with _) are outside the hash by design
 
 ztip hash examples/01-auto-authorized-success.json
 # prints the RFC 8785 + SHA-256 envelope hashes
 ```
 
+`pip install --pre ztip` installs the last published pre-release from PyPI. It is behind this
+repository: the verification rules described below landed after it, so install from a clone to
+follow along.
+
 All ten lifecycle examples under `examples/` carry real, recomputable integrity
-hashes — tamper with any field and `ztip verify` fails closed. The protocol
+hashes — tamper with any hashed field and `ztip verify` fails closed. So does an
+empty bundle, a reference to an envelope that is not there, and a receipt that
+reports success without recording a single check: `verify` says how many envelopes
+it verified and how many references it resolved, and never reports a pass over
+nothing. What it does not do is judge field values against the full schema, or
+prove who produced an envelope — it says so on every run, and
+`scripts/validate-examples.py` is the schema check. Annotation fields (keys
+beginning with `_`) sit outside the hash by design and are not covered. The protocol
 summary is also published as an individual Internet-Draft,
 [draft-mccormack-ztip](https://datatracker.ietf.org/doc/draft-mccormack-ztip/);
 an Internet-Draft is a working document, not an IETF standard.
@@ -220,8 +238,10 @@ are drafted. This repository is the canonical home for that work.
 
 The repository also ships a reference runtime: the `ztip/` Python package implements RFC 8785
 canonicalization, SHA-256 hashing, and hash-chain integrity verification, with a `ztip` CLI
-(`ztip hash`, `ztip verify`) that fails closed on any defect. The integrity hashes in the
-`examples/` files are real and recomputable with it.
+(`ztip hash`, `ztip verify`) that fails closed on any integrity or envelope-contract defect —
+and states the limits of what it checked on every run. Full schema conformance is
+`scripts/validate-examples.py`. The integrity hashes in the `examples/` files are real and
+recomputable with the runtime.
 
 Contributions, questions, and alignment discussions are welcome.
 

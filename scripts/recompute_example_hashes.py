@@ -18,6 +18,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from ztip.chain import (  # noqa: E402
+    DuplicateJSONKeyError,
+    envelopes,
+    reject_duplicate_keys,
+)
 from ztip.hashing import envelope_hash  # noqa: E402
 
 PLACEHOLDER_PREFIX = "EXAMPLE-HASH-"
@@ -67,7 +72,7 @@ def substitute(obj, mapping: dict[str, str]):
 
 def resolve_bundle(bundle: dict) -> tuple[dict[str, str], list]:
     """Return (placeholder -> real hash, list of unresolved placeholders)."""
-    envelopes = bundle.get("envelopes", [])
+    entries = envelopes(bundle)
     resolved: dict[str, str] = {}
 
     # References to content outside the bundle (external evidence, state
@@ -76,7 +81,7 @@ def resolve_bundle(bundle: dict) -> tuple[dict[str, str], list]:
     # remaining in-bundle envelopes can seal.
     own_placeholders = {
         (env.get("integrity") or {}).get("hash_value")
-        for env in envelopes
+        for env in entries
     }
     own_placeholders = {
         value for value in own_placeholders
@@ -85,7 +90,7 @@ def resolve_bundle(bundle: dict) -> tuple[dict[str, str], list]:
     for reference in find_placeholders(bundle) - own_placeholders:
         resolved[reference] = illustrative_hash(reference)
 
-    unsealed = list(envelopes)
+    unsealed = list(entries)
     progress = True
     while unsealed and progress:
         progress = False
@@ -113,10 +118,10 @@ def refresh_bundle(bundle: dict) -> tuple[dict[str, str], list]:
     pick the fresh values up through substitution. External illustrative
     digests are not any envelope's own hash, so they pass through untouched.
     """
-    envelopes = bundle.get("envelopes", [])
+    entries = envelopes(bundle)
     own_hashes = {
         (env.get("integrity") or {}).get("hash_value")
-        for env in envelopes
+        for env in entries
     }
     own_hashes.discard(None)
     resolved: dict[str, str] = {}
@@ -138,7 +143,7 @@ def refresh_bundle(bundle: dict) -> tuple[dict[str, str], list]:
         walk(node)
         return found
 
-    unsealed = list(envelopes)
+    unsealed = list(entries)
     progress = True
     while unsealed and progress:
         progress = False
@@ -155,19 +160,43 @@ def refresh_bundle(bundle: dict) -> tuple[dict[str, str], list]:
     return resolved, unresolved
 
 
+def safe_name(path: Path) -> str:
+    """File names are untrusted input to this tool as much as file contents are."""
+    return path.name if path.name.isprintable() else json.dumps(path.name)
+
+
 def main() -> int:
     refresh = "--refresh" in sys.argv[1:]
-    examples_dir = REPO_ROOT / "examples"
+    # An optional directory lets the test suite point this exact script at planted
+    # fixtures. Copying the script instead would break its own sys.path setup.
+    positional = [arg for arg in sys.argv[1:] if not arg.startswith("-")]
+    examples_dir = Path(positional[0]) if positional else REPO_ROOT / "examples"
+    if not examples_dir.is_dir():
+        print(f"ERROR: not a directory: {examples_dir}")
+        return 1
+    if not sorted(examples_dir.glob("*.json")):
+        # The same rule this tool exists to enforce: reporting "no placeholders
+        # remain" after looking at nothing is a vacuous pass.
+        print(f"ERROR: no example files found in {examples_dir}")
+        return 1
     total = 0
+    failed = False
     for path in sorted(examples_dir.glob("*.json")):
-        bundle = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            bundle = json.loads(path.read_text(encoding="utf-8"),
+                                object_pairs_hook=reject_duplicate_keys)
+        except DuplicateJSONKeyError as exc:
+            print(f"FAIL {safe_name(path)}: ambiguous JSON: {exc}. Parsers disagree about "
+                  "what this document says while every hash still verifies.")
+            failed = True
+            continue
         if refresh:
             mapping, unresolved = refresh_bundle(bundle)
             mapping = {old: new for old, new in mapping.items() if old != new}
         else:
             mapping, unresolved = resolve_bundle(bundle)
         if unresolved:
-            print(f"WARN {path.name}: unresolved placeholders: {unresolved}")
+            print(f"WARN {safe_name(path)}: unresolved placeholders: {unresolved}")
         text = path.read_text(encoding="utf-8")
         replaced = 0
         for placeholder, real in sorted(mapping.items(), key=lambda kv: -len(kv[0])):
@@ -177,9 +206,9 @@ def main() -> int:
                 replaced += occurrences
         path.write_text(text, encoding="utf-8")
         total += replaced
-        print(f"{path.name}: {replaced} replacement(s) across {len(mapping)} hash(es)")
+        print(f"{safe_name(path)}: {replaced} replacement(s) across {len(mapping)} hash(es)")
     print(f"\nDone: {total} total {'refresh' if refresh else 'placeholder'} replacement(s).")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

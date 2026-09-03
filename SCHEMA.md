@@ -693,6 +693,27 @@ The results of checking the execution outcome against the `verification_requirem
 the transaction request. Must be structured — not free text. Each requirement from the
 request should have a corresponding pass/fail result here.
 
+Where the field is an object, its keys are check identifiers and must not begin with an
+underscore: underscore-prefixed keys are non-normative annotations, excluded from the envelope
+hash, so a result stored under one is not covered by the seal — the same hash describes the
+receipt with and without it.
+
+Every entry, in any receipt state, must be a structured result: `check_id`, `check_type`, and
+a boolean `passed` are required, and `expected_result`, `actual_result`, `verification_actor`,
+`evidence_ref`, and `failure_reason_code` are optional and typed when present. `check_id` and
+`check_type` must each carry at least one visible character — an identifier made of spaces or
+zero-width characters names nothing.
+
+When `status` is `succeeded`, the field **must** additionally be non-empty — a non-empty array
+of result objects, or a non-empty object whose values are result objects: a success that
+recorded no result asserts a completion that nothing checked. Receipts in a non-succeeded
+terminal state may record no results, because execution may never have reached verification;
+the field itself is still required, and an empty collection is how "none" is expressed.
+
+Correspondence between the results here and the `verification_requirements` of the request,
+matched by `check_id`, is a control-plane acceptance rule (see `SPEC.md`, Fail-Closed
+Acceptance), not a schema constraint.
+
 **`atomicity_result`** — Required. Object.
 Records whether atomicity requirements were met. Must include:
 - `mode_declared` — the `atomicity_mode` from the transaction request,
@@ -1316,7 +1337,7 @@ is expected per policy.
     "display_name": "Planning Agent",
     "organization_id": "org-acme-corp",
     "registration_ref": "reg://agents/planner-001",
-    "capability_claims": ["request_deployment"],
+    "capability_claims": ["approval.request"],
     "implementation_ref": "architect-agent-v2"
   },
   "target_actor": {
@@ -1325,27 +1346,42 @@ is expected per policy.
     "display_name": "Deployment Executor",
     "organization_id": "org-acme-corp",
     "registration_ref": "reg://agents/executor-deploy-001",
-    "capability_claims": ["deploy_service"]
+    "capability_claims": ["org.acme/deploy_service"]
   },
   "requested_action": {
-    "capability": "deploy_service",
+    "action_id": "act-0a1b2c3d4e5f-deploy",
+    "action_type": "deploy",
+    "profile": "org.acme/deployment",
+    "description": "Deploy billing-api v2.4.1 to production.",
     "parameters": {
       "service": "billing-api",
       "environment": "production",
       "version": "2.4.1"
-    }
+    },
+    "required_capabilities": ["org.acme/deploy_service"],
+    "risk_level": "medium",
+    "expected_outputs": [
+      { "type": "deployment_status", "expected": "deployed" }
+    ]
   },
-  "requested_capabilities": ["deploy_service"],
+  "requested_capabilities": ["org.acme/deploy_service"],
   "atomicity_mode": "atomic_required",
   "verification_requirements": [
     {
-      "check": "service_health",
-      "expected": "healthy",
-      "target": "billing-api.production"
+      "check_id": "chk-01-health",
+      "check_type": "service_health",
+      "description": "billing-api must be healthy in production after deployment.",
+      "required": true,
+      "expected_result": { "status": "healthy", "target": "billing-api.production" },
+      "failure_reason_code": "VERIFY_FAILED"
     },
     {
-      "check": "version_deployed",
-      "expected": "2.4.1"
+      "check_id": "chk-01-version",
+      "check_type": "deployment_status",
+      "description": "Deployed version must match the requested version.",
+      "required": true,
+      "expected_result": { "version": "2.4.1", "target": "billing-api.production" },
+      "failure_reason_code": "VERIFY_FAILED"
     }
   ],
   "expiry_request": "2026-04-24T14:30:00Z",
@@ -1439,8 +1475,20 @@ The deployment completes and verification passes.
     { "action": "deploy_service", "target": "billing-api", "environment": "production" }
   ],
   "verification_results": [
-    { "check": "service_health", "expected": "healthy", "actual": "healthy", "passed": true },
-    { "check": "version_deployed", "expected": "2.4.1", "actual": "2.4.1", "passed": true }
+    {
+      "check_id": "chk-01-health",
+      "check_type": "service_health",
+      "expected_result": { "status": "healthy" },
+      "actual_result": { "status": "healthy" },
+      "passed": true
+    },
+    {
+      "check_id": "chk-01-version",
+      "check_type": "deployment_status",
+      "expected_result": { "version": "2.4.1" },
+      "actual_result": { "version": "2.4.1" },
+      "passed": true
+    }
   ],
   "atomicity_result": {
     "mode_declared": "atomic_required",
