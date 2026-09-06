@@ -31,3 +31,8 @@ Thumbs.db
 tmp/
 .cache/
 *.log
+
+# Packaging build artifacts
+*.egg-info/
+build/
+dist/
