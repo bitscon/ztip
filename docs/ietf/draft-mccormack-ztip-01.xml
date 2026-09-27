@@ -1,0 +1,609 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-model href="rfc7991bis.rnc"?>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+     category="info"
+     docName="draft-mccormack-ztip-01"
+     ipr="trust200902"
+     obsoletes=""
+     updates=""
+     submissionType="independent"
+     xml:lang="en"
+     version="3">
+
+  <front>
+    <title abbrev="ZTIP">The Zero Trust Intelligence Protocol (ZTIP): Governed, Independently Verified AI Agent Transactions</title>
+    <seriesInfo name="Internet-Draft" value="draft-mccormack-ztip-01"/>
+    <author fullname="Chad McCormack" initials="C." surname="McCormack">
+      <organization>Zero Trust Intelligence</organization>
+      <address>
+        <email>chad@bitscon.net</email>
+        <uri>https://zerotrustintelligence.io</uri>
+      </address>
+    </author>
+    <!-- No date attributes: the renderer stamps the document with the day it is
+         processed, so the header date and the boilerplate expiry always agree.
+         Do not pin a date here. -->
+    <date/>
+    <area>Security</area>
+    <keyword>AI agents</keyword>
+    <keyword>governance</keyword>
+    <keyword>zero trust</keyword>
+    <keyword>receipts</keyword>
+    <keyword>verification</keyword>
+
+    <abstract>
+      <t>The Zero Trust Intelligence Protocol (ZTIP) is an open, transport-neutral
+      protocol for governed AI agent transactions. It defines five immutable JSON
+      envelope types and a transaction lifecycle under which every agent-initiated
+      action is authorized by policy before execution, integrity-protected by
+      hash over a canonical form, and -- distinctively -- verified as complete by
+      an authority independent of the actor that performed the work. An
+      executor's claim of success is treated as attestation, and attestation
+      alone never satisfies a required verification check. This revision states
+      what integrity verification does not establish, and specifies the
+      fail-closed rules an implementation MUST apply when it verifies a set of
+      envelopes together, so that a verification report can never claim more
+      than was actually checked. This document describes ZTIP version
+      1.0-draft for the record; the full specification, JSON Schemas, examples,
+      and a reference runtime are maintained in the open at the repository
+      referenced herein.</t>
+    </abstract>
+
+    <note removeInRFC="true">
+      <name>About This Document</name>
+      <t>This document is an individual submission with informational intent. It
+      does not represent IETF consensus. Discussion and the authoritative,
+      continuously maintained specification text are located at
+      <eref target="https://github.com/bitscon/ztip"/>.</t>
+    </note>
+  </front>
+
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>AI agents are being composed into production workflows at scale:
+      planners invoke executors, orchestrators invoke specialists, tools invoke
+      tools. In most deployed systems these handoffs carry no governance
+      artifact. One agent passes a message; another acts on it. Nothing is
+      authorized against policy, nothing is integrity-protected, and -- the gap
+      this protocol is centrally concerned with -- nothing independently
+      establishes that the work an agent claims to have finished was actually
+      finished.</t>
+      <t>Existing and emerging mechanisms in this space largely govern whether
+      an agent MAY act (identity, authorization, policy interception) and
+      record what was decided (signed decision or action receipts). ZTIP covers
+      that ground and then addresses the remaining question: did the authorized
+      action verifiably complete? ZTIP's answer is structural. Verification
+      requirements are declared before execution, bound by hash to the
+      authorized request, and evaluated after execution by an authority
+      independent of the executor. A transaction resolves as succeeded only
+      when every required check has passed under independent verification;
+      otherwise it fails, closed, with a reason code that distinguishes a
+      failed check from an unverified claim.</t>
+      <t>ZTIP does not restrict which agent frameworks, models, or tools are
+      used, and it does not define a transport. It governs the transaction
+      artifact: what was requested, whether policy authorized it, and what
+      verifiably happened. This document summarizes the protocol for the
+      record; the authoritative, continuously maintained specification,
+      JSON Schemas, lifecycle examples with recomputable hashes, and a
+      reference runtime are published openly <xref target="ZTIP-SPEC"/>.</t>
+      <t>Implementation experience since the previous revision surfaced a
+      failure mode that deserves protocol-level treatment: a verifier can
+      report "verified" over content whose scope it never established -- an
+      empty set of envelopes, a reference that resolved to nothing, a record
+      that is missing the envelope that would contradict it. A tool that does
+      this reproduces, one layer down, the very substitution of claim for
+      evidence that ZTIP exists to prevent. <xref target="not-answered"/> states
+      what integrity verification does not establish, and
+      <xref target="bundle"/> specifies the fail-closed rules for verifying a
+      set of envelopes together. <xref target="changes"/> lists the changes in
+      this revision.</t>
+    </section>
+
+    <section anchor="conventions">
+      <name>Conventions and Definitions</name>
+      <t>The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+      "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+      "OPTIONAL" in this document are to be interpreted as described in
+      BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> when, and
+      only when, they appear in all capitals, as shown here.</t>
+      <dl>
+        <dt>Transaction</dt>
+        <dd>The full governed unit of work, from request creation to final
+        receipt. A lifecycle with defined states, not a single message.</dd>
+        <dt>Envelope</dt>
+        <dd>An immutable, integrity-protected JSON object carrying one
+        transaction event. Subsequent events produce new, linked envelopes;
+        prior envelopes are never modified.</dd>
+        <dt>Bundle</dt>
+        <dd>A set of ZTIP envelopes verified together: the envelopes of one
+        transaction, an audit-trail export, or an evidence package. A bundle
+        is a verification unit, not a transaction event, and is not itself an
+        envelope.</dd>
+        <dt>Actor</dt>
+        <dd>Any entity participating in a transaction: an AI agent, an
+        automated system, or a human. All actors are identifiable to the
+        control plane.</dd>
+        <dt>Role</dt>
+        <dd>A protocol-level governance classification. ZTIP defines nine
+        roles: operator, control_plane, source_actor, target_actor, planner,
+        executor, validator, auditor, and runtime. Roles describe governance
+        function; tool, vendor, and model names MUST NOT appear as role
+        values.</dd>
+        <dt>Control plane</dt>
+        <dd>The authority that evaluates policy and issues authorization
+        decisions. ZTIP defines what a control plane must do, not what it must
+        be; any implementation meeting the conformance requirements is a valid
+        control plane.</dd>
+        <dt>Attestation</dt>
+        <dd>An actor's own report about its work or results. Attestation is
+        input to verification -- evidence to be checked -- never the check
+        itself.</dd>
+        <dt>Annotation field</dt>
+        <dd>A non-normative member whose key begins with an underscore.
+        Annotation fields are removed before canonicalization and are
+        therefore outside the envelope hash.</dd>
+      </dl>
+    </section>
+
+    <section anchor="lifecycle">
+      <name>Transaction Lifecycle</name>
+      <t>A ZTIP transaction progresses through defined states; not every state
+      is reached in every transaction. The states are: created, submitted,
+      evaluated, authorized, rejected, accepted, executing, verifying,
+      succeeded, failed, cancelled, and expired. Every terminal state --
+      succeeded, failed, rejected, cancelled, expired -- produces a receipt.
+      The verifying state is first-class: after execution and before
+      resolution, declared verification requirements are evaluated as
+      described in <xref target="verification"/>.</t>
+    </section>
+
+    <section anchor="envelopes">
+      <name>Envelope Types</name>
+      <t>ZTIP defines five envelope types:</t>
+      <dl>
+        <dt>transaction_request</dt>
+        <dd>Created by the source actor: the requested action (a structured
+        action wrapper with typed parameters, capability requirements, and
+        risk level), the target, and the verification requirements that must
+        pass for the outcome to count as success.</dd>
+        <dt>authorization_decision</dt>
+        <dd>Issued only by the control plane after policy evaluation. Carries
+        an authorization status (auto_authorized, human_approval_required,
+        human_approved, evidence_required, rejected, or expired), references
+        to the policies evaluated, reason codes, and the hash of the request
+        it authorizes. Human approvals are transaction-specific, action-bound,
+        target-bound, and single-use by default.</dd>
+        <dt>execution_receipt</dt>
+        <dd>The result envelope. References the original request by hash,
+        records what was attempted and completed, and carries the verification
+        results that establish (or refuse) completion.</dd>
+        <dt>evidence_record</dt>
+        <dd>Typed supporting material submitted to satisfy a policy or
+        verification requirement: test results, approval records, prior
+        receipts, compliance attestations.</dd>
+        <dt>amendment_event</dt>
+        <dd>A linked event against an existing transaction (for example, a
+        cancellation request). Amendments do not mutate transaction state
+        directly; the control plane evaluates them and issues the resulting
+        transition.</dd>
+      </dl>
+      <t>An object that declares any ZTIP envelope field -- ztap_version,
+      envelope_type, transaction_id, or integrity -- is an envelope and MUST be
+      verified as one, even when it also carries a member that would otherwise
+      mark it as a bundle wrapper. See <xref target="bundle"/>.</t>
+    </section>
+
+    <section anchor="integrity">
+      <name>Integrity Model</name>
+      <t>Every envelope carries an integrity object declaring its
+      canonicalization scheme, hash algorithm, and hash value. Integrity is
+      mandatory: an envelope without a verifiable hash is not a ZTIP envelope.
+      Encryption is policy-conditional and MUST NOT be a prerequisite for
+      envelope processing; envelopes are human-auditable JSON by default.</t>
+      <t>ZTIP v1 uses SHA-256 over the RFC 8785 JSON Canonicalization Scheme
+      <xref target="RFC8785"/> canonical form of the envelope, computed with
+      the integrity hash_value itself removed and underscore-prefixed
+      non-normative annotation keys stripped recursively before
+      canonicalization. The remainder of the integrity object -- including the
+      declared canonicalization and algorithm -- stays inside the hash input,
+      so the declared method is itself tamper-evident. Envelopes reference
+      one another by hash (for example, an authorization_decision binds the
+      request_hash of the request it authorizes; a receipt references the
+      request by hash), forming a verifiable chain for the transaction. This
+      hash rule is unchanged from the previous revision.</t>
+      <t>For historical reasons the envelope version field is named
+      ztap_version, after the protocol's original working name. The field name
+      participates in the hashed canonical content and is therefore retained
+      unchanged; implementations MUST treat it as a fixed protocol
+      identifier.</t>
+
+      <section anchor="answered">
+        <name>What Integrity Verification Establishes</name>
+        <t>Recomputing an envelope's hash answers, and only answers, whether
+        the content in hand is the content that was sealed: whether an
+        envelope has been altered since issuance, whether a receipt
+        corresponds to the request it names, whether evidence corresponds to
+        the transaction it claims to support, and whether an append-only audit
+        log has been tampered with. Because the hash is computed from the
+        envelope's own content, anyone holding the envelope can recompute it;
+        intactness is checkable by everyone, without a secret.</t>
+      </section>
+
+      <section anchor="not-answered">
+        <name>What Integrity Verification Does Not Establish</name>
+        <t>That same property -- self-contained recomputability -- is why
+        integrity verification is silent on three separate questions. An
+        implementation MUST NOT present hash verification as answering any of
+        them.</t>
+        <dl>
+          <dt>Authenticity</dt>
+          <dd>An intact envelope is self-consistent. It is not evidence that a
+          trusted party produced it, because the party that altered it could
+          recompute the hash as easily as the party that issued it. Binding an
+          envelope to an identity requires a signature or an independent
+          attestation, which ZTIP v1 does not mandate; see
+          <xref target="security"/>.</dd>
+          <dt>Whether a declared check actually ran</dt>
+          <dd>Integrity binds the results a receipt records. It cannot
+          establish that those results came from executing the declared
+          checks. That separation is the subject of
+          <xref target="verification"/>, and it is settled by the control
+          plane, not by a hash.</dd>
+          <dt>Whether the record is complete</dt>
+          <dd>A set of envelopes may each verify intact and still be missing
+          the envelope that would change the reading -- the request a receipt
+          names, the second request that contradicts it, the receipt that
+          reports a different outcome. Completeness is the subject of
+          <xref target="bundle"/>.</dd>
+        </dl>
+        <t>Reporting "verified" over content whose scope was not established
+        is the failure mode these rules exist to prevent. A verification
+        report that overstates its scope is worse than no report: it converts
+        an unexamined record into an apparently examined one, and every
+        consumer downstream inherits that error.</t>
+      </section>
+    </section>
+
+    <section anchor="verification">
+      <name>Completion Verification</name>
+      <t>An executor's claim of success is attestation. It is not
+      verification. A transaction is not complete because the actor that
+      performed the work says it is complete; it is complete when the
+      verification requirements declared in the request have passed under an
+      authority independent of that actor.</t>
+      <section anchor="declared-before">
+        <name>Declared Before Execution</name>
+        <t>Verification requirements are declared in the transaction_request,
+        before any action is taken. Each required check is structured (check
+        identifier, check type, expected result); free-text-only checks are
+        invalid. Because the envelope hash binds the declared checks to the
+        authorized request, criteria invented after execution are not
+        verification requirements.</t>
+      </section>
+      <section anchor="independence">
+        <name>The Independence Requirement</name>
+        <t>Verification MUST be performed by an authority independent of the
+        target actor that executed the action: the control plane, a designated
+        validator actor, or deterministic re-execution of the declared checks.
+        The executor's own report of its results is attestation. Attestation
+        is input to verification -- evidence to be checked -- and attestation
+        alone MUST NOT satisfy a required verification check. The entity that
+        executes does not verify its own work; this is the same separation
+        that forbids self-authorization, applied to completion.</t>
+      </section>
+      <section anchor="fail-closed">
+        <name>Fail-Closed Acceptance</name>
+        <t>A receipt claiming success is accepted as succeeded only when every
+        required verification check has passed under independent verification.
+        The failure modes are distinct and carry distinct reason codes:</t>
+        <ul>
+          <li>A required check that was independently executed and did not
+          pass resolves the transaction failed with reason code
+          VERIFY_FAILED.</li>
+          <li>A required check satisfied only by executor attestation -- never
+          independently verified -- resolves the transaction failed with
+          reason code COMPLETION_UNVERIFIED.</li>
+          <li>If required verification cannot be executed at all, the
+          transaction MUST NOT resolve succeeded; it resolves failed with
+          reason code VERIFY_UNAVAILABLE. An unverifiable success is not a
+          success.</li>
+        </ul>
+        <t>There is no partial credit for checks that were merely attested.</t>
+      </section>
+      <section anchor="recorded-results">
+        <name>Recorded Results</name>
+        <t>A receipt with status succeeded MUST record at least one
+        verification result. A success that recorded no result asserts a
+        completion that nothing checked, and is not a valid ZTIP receipt. Each
+        recorded result MUST identify the check it reports -- its check
+        identifier and check type -- and whether that check passed. A receipt
+        in a non-succeeded terminal state MAY carry no results, because
+        execution may never have reached verification; that case is honest and
+        remains valid.</t>
+        <t>Wherever verification results appear, they MUST be structured;
+        free text is not a recorded result. A result carried under an
+        annotation field is not recorded at all: annotation fields are outside
+        the envelope hash, so the same hash describes the receipt with the
+        result and without it, and nothing binds the producer to it.</t>
+        <t>Results SHOULD identify the verifying authority. Naming it is a
+        producer obligation: a verifier cannot tell from an envelope whether a
+        named actor really performed a check, so its absence is a gap in the
+        audit record rather than a verification failure.</t>
+        <t>Recording results is a floor, not the whole requirement. Whether
+        the recorded results correspond to the checks the request declared --
+        every declared requirement answered by a result carrying the same
+        check identifier -- is settled by the control plane under
+        <xref target="fail-closed"/>, not by envelope integrity
+        verification.</t>
+      </section>
+    </section>
+
+    <section anchor="bundle">
+      <name>Bundle Verification</name>
+      <t>Envelopes are commonly verified in sets: the envelopes of one
+      transaction, an audit-trail export, an evidence package. Verifying a set
+      raises questions that verifying a single envelope does not -- what was
+      in scope, what resolved, and what is absent -- and each of them is a way
+      for a report to claim more than was checked. An implementation that
+      verifies a bundle MUST apply the following rules. Each fails closed.</t>
+      <dl>
+        <dt>A wrapper carries envelopes; it is not one.</dt>
+        <dd>An object declaring any ZTIP envelope field -- ztap_version,
+        envelope_type, transaction_id, or integrity -- is one envelope and is
+        verified as such, even when it also carries an envelope collection
+        member. Reading such an object as a wrapper would leave the envelope
+        itself unverified while the reported count described its payload. An
+        object declaring none of those fields, and carrying an envelope
+        collection, is a wrapper. Testing a single field, such as
+        envelope_type alone, leaves this bypass open to any object that drops
+        or nulls that one field.</dd>
+        <dt>An empty bundle is not a verified bundle.</dt>
+        <dd>Verification over zero envelopes MUST NOT report success. An
+        implementation MUST report how many envelopes it verified, so that no
+        consumer -- human or automated -- can read "nothing to verify" as
+        "everything verified".</dd>
+        <dt>Report what was counted, not what was submitted.</dt>
+        <dd>An implementation reporting a count states how many envelopes it
+        verified and how many references it resolved. Zero resolved references
+        is not a verified chain.</dd>
+        <dt>References MUST resolve.</dt>
+        <dd>A request_hash that names a transaction request not present in the
+        bundle leaves that linkage unverified and MUST be reported as such. An
+        implementation MAY offer an explicit mode for verifying a deliberately
+        partial bundle -- receipts held without their requests, for example --
+        and in that mode it MUST state that chain linkage was not
+        verified.</dd>
+        <dt>References resolve by transaction.</dt>
+        <dd>A request_hash is resolved against the transaction_request
+        carrying the same transaction_id, and MUST equal that request's hash.
+        Resolving by hash value alone would let a receipt bind itself to a
+        different transaction's request.</dd>
+        <dt>Every binding site is resolved, not only the top-level field.</dt>
+        <dd>An authorization decision's human approval reference carries its
+        own transaction_id and request_hash, and that pair is what binds a
+        human approval to the work it approved. It is resolved under the same
+        rule. Leaving it unchecked is how an approval for one transaction gets
+        attached to another while every hash still verifies.</dd>
+        <dt>One transaction request per transaction.</dt>
+        <dd>A bundle carrying more than one transaction_request for a single
+        transaction_id has an ambiguous request history: a second request can
+        shadow the first while every hash still checks out. This is invalid
+        regardless of which request the receipts reference.</dd>
+        <dt>One transaction, one outcome.</dt>
+        <dd>A transaction may carry several envelopes and several receipts,
+        but receipts reporting different terminal states for one
+        transaction_id are contradictory: a consumer would have to guess which
+        one settles the transaction.</dd>
+        <dt>A success MUST NOT contradict its own record.</dt>
+        <dd>A succeeded receipt whose every recorded check reports failure is
+        internally inconsistent, regardless of which checks were
+        required.</dd>
+        <dt>Envelopes MUST be ZTIP envelopes.</dt>
+        <dd>Content that does not satisfy the envelope contract -- a protocol
+        version the verifier supports, a known envelope_type, a
+        transaction_id, an integrity object declaring the canonicalization and
+        hash algorithm it was sealed under, and the fields that envelope type
+        requires -- is not verifiable ZTIP content, and a self-computed hash
+        over it MUST NOT be reported as a verified envelope. Value-level
+        conformance beyond that contract -- identifier formats, role
+        vocabularies, reason-code namespacing -- is schema validation, and a
+        verifier that does not perform it MUST NOT imply that it did.</dd>
+        <dt>Verify under the rules the envelope declares.</dt>
+        <dd>An envelope declaring a canonicalization or hash algorithm the
+        verifier does not apply MUST be reported, not silently verified under
+        the verifier's own default. Otherwise the report describes a
+        computation nobody performed.</dd>
+        <dt>Content beside the envelopes is not verified.</dt>
+        <dd>A wrapper may legitimately carry metadata -- an export identifier,
+        a timestamp -- beside its envelopes. That content is outside every
+        envelope hash, so an implementation MUST report it alongside its
+        result. This is a disclosure duty, not grounds for refusal: refusing
+        such an export would push integrators to stop verifying exports at
+        all.</dd>
+        <dt>The document MUST be unambiguous.</dt>
+        <dd>A JSON object that declares the same member name twice means
+        different things to different parsers while every hash still checks
+        out. An integrity model built on a canonical form cannot accept that;
+        such a document is not verifiable.</dd>
+      </dl>
+      <t>Content that cannot be read at all -- input that is not well-formed
+      UTF-8 JSON, or an envelope for which no canonical form can be computed
+      -- is a usage error rather than a verification finding, and an
+      implementation SHOULD report the two conditions distinguishably.</t>
+    </section>
+
+    <section anchor="conformance">
+      <name>Conformance Levels</name>
+      <t>The specification defines three conformance levels. Level 1
+      (Envelope Validator) parses and validates envelopes, verifies hashes,
+      enforces the role and registry rules, and applies the bundle
+      verification rules of <xref target="bundle"/> whenever it verifies more
+      than one envelope together. Level 2 (Control Plane)
+      manages the full lifecycle: registration, policy evaluation,
+      authorization issuance, approval scope and replay rejection, receipt
+      ingestion with hash verification, and an append-only, hash-linked audit
+      log. Level 3 (Governed Executor/Runtime) enforces the trust boundary at
+      the point of action: refusing governed work without a valid, verified
+      authorization record. Fail-closed behavior is a protocol invariant at
+      every level, not a configuration option: invalid, unknown, expired,
+      tampered, or unauthorized transactions are rejected, and ambiguity
+      resolves to denial.</t>
+      <t>Conformance also constrains what an implementation may say about its
+      own results. A report that names a verdict without naming the scope it
+      covered is non-conforming, at every level.</t>
+    </section>
+
+    <section anchor="transport">
+      <name>Transport Independence</name>
+      <t>ZTIP conformance is not concerned with how envelopes are delivered.
+      An envelope may travel over an API call, a file, a message queue, a
+      version-control pull request, or any other channel; governance is
+      enforced at the envelope level. The fact that a message arrived over a
+      secure channel does not make it authorized. The authorization record
+      governs; the transport does not.</t>
+    </section>
+
+    <section anchor="impl-status">
+      <name>Implementation Status</name>
+      <t>This section records the state of implementation at the time of
+      writing, in the spirit of <xref target="RFC7942"/>, and is not part of
+      the protocol.</t>
+      <t>An open-source reference runtime implements the canonicalization,
+      hashing, envelope verification, and bundle verification rules described
+      here, with a command-line interface that hashes and verifies envelopes
+      and bundles and exits non-zero on any finding. A conformance corpus of
+      ten lifecycle examples with recomputable hashes is published alongside
+      the JSON Schemas, and the schemas alone accept that corpus. The rules in
+      <xref target="bundle"/> were derived from defects found in that runtime:
+      in each case the tool reported a verified result over content it had not
+      established the scope of. Continuous integration executes the runtime
+      against the corpus, which had previously been validated only for
+      schema and JSON syntax conformance. Current status, test matrix, and
+      open questions are maintained at <xref target="ZTIP-SPEC"/>.</t>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>ZTIP's guarantees are scoped to what hash-bound envelopes and
+      independent verification can provide. Integrity protection detects
+      tampering with any envelope content after issuance, including the
+      declared checks; it does not by itself authenticate actors, and v1
+      leaves signature and key-management schemes to deployment profiles.
+      The independence requirement removes the executor from the trust base
+      for completion claims; its strength therefore depends on the actual
+      independence and correctness of the verifying authority and the
+      declared checks. Poorly chosen verification requirements verify the
+      wrong thing faithfully. Validity windows and expiry depend on
+      reasonably synchronized clocks. Denial of service against the control
+      plane degrades the ability to authorize new work but, by the fail-closed
+      invariant, never converts into unauthorized execution. Envelopes are
+      cleartext JSON by default; deployments handling sensitive payloads
+      SHOULD apply channel or storage protection appropriate to their
+      environment, noting that encryption is deliberately not a precondition
+      for envelope processing or audit.</t>
+      <t>A verification tool is itself part of the attack surface, and an
+      overstated verification report is the failure this revision is most
+      concerned with. An adversary who cannot alter a sealed envelope may
+      still be able to shape what a verifier examines: submit an empty set, a
+      wrapper whose own envelope goes unchecked, a receipt whose request is
+      absent, a second request that shadows the first, a result stored under
+      an annotation field that the seal does not cover, or an object with a
+      duplicated member name that two parsers read differently. In each case
+      every hash presented checks out and the honest answer is "scope not
+      established". An implementation that answers "verified" has been used as
+      a laundering step for an unverified claim. The rules in
+      <xref target="bundle"/> exist to close that gap, and they are stated as
+      reporting duties as well as verdicts: a verdict without its scope is not
+      a usable security statement.</t>
+      <t>Consumers of a verification report SHOULD treat the report's declared
+      scope -- how many envelopes were verified, how many references
+      resolved, what content was carried outside the envelopes, and whether
+      chain linkage was verified -- as part of the result, and SHOULD fail
+      closed when that scope is absent.</t>
+    </section>
+
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8785.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7942.xml"/>
+        <reference anchor="ZTIP-SPEC" target="https://github.com/bitscon/ztip">
+          <front>
+            <title>ZTIP: Zero Trust Intelligence Protocol -- Specification, Schemas, Examples, and Reference Runtime</title>
+            <author fullname="Chad McCormack"/>
+            <date year="2026"/>
+          </front>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="changes" numbered="false" removeInRFC="true">
+      <name>Changes from draft-mccormack-ztip-00</name>
+      <t>No change was made to the integrity hash rule, to the envelope
+      version field name, or to the five envelope types. Every change below
+      either states a limit that was always true or specifies behavior an
+      implementation must not get wrong when verifying more than one envelope
+      at a time.</t>
+      <ul>
+        <li>New <xref target="not-answered"/> states the three questions
+        integrity verification does not answer -- authenticity, whether a
+        declared check ran, and whether the record is complete -- and forbids
+        presenting a hash check as answering any of them. New
+        <xref target="answered"/> states, correspondingly, what recomputing a
+        hash does establish.</li>
+        <li>New <xref target="bundle"/> specifies the fail-closed rules for
+        verifying a set of envelopes together: envelope-over-wrapper
+        precedence on any declared envelope field, refusal of an empty
+        bundle, reference resolution scoped by transaction_id, resolution of
+        the human-approval binding site and not only the top-level reference,
+        one transaction request and one terminal outcome per transaction, no
+        succeeded receipt that contradicts its own recorded checks, the
+        envelope contract that content must satisfy before a self-computed
+        hash may be called verified, verification under the rules the envelope
+        declares, disclosure of content carried beside the envelopes,
+        rejection of a document with a duplicated member name, and the duty to
+        report the counts actually verified and resolved.</li>
+        <li>New <xref target="recorded-results"/> requires a succeeded receipt
+        to record at least one structured verification result naming the check
+        and its outcome, states that a result carried under an annotation
+        field is not recorded because the seal does not cover it, and makes
+        identifying the verifying authority a producer obligation whose
+        absence is an audit gap rather than a verification failure.</li>
+        <li><xref target="envelopes"/> and <xref target="conformance"/> carry
+        the envelope-over-wrapper precedence rule and the bundle rules into
+        Level 1 conformance, and add that a report naming a verdict without
+        naming its scope is non-conforming.</li>
+        <li><xref target="security"/> adds the verification tool itself as
+        attack surface: the ways an adversary can shape what a verifier
+        examines without altering a sealed envelope, and the corresponding
+        advice that consumers treat a report's declared scope as part of its
+        result.</li>
+        <li>New <xref target="impl-status"/> records the reference runtime,
+        the ten-example conformance corpus, and the fact that the rules in
+        this revision were derived from defects found in that runtime.</li>
+        <li>Definitions added for Bundle and Annotation field; the abstract
+        and introduction updated to name the new material.</li>
+      </ul>
+    </section>
+
+    <section anchor="ack" numbered="false">
+      <name>Acknowledgements</name>
+      <t>The specification this document summarizes is developed in the open;
+      see the repository for history and contributions.</t>
+    </section>
+  </back>
+</rfc>
